@@ -4,7 +4,9 @@ Retrieve views from Hive database and push to Dremio as Virtual Datasets
 Update `dremio_config.ini`
 
 Set passwords for mysql and Dremio using the set password script
-`set_password_in_config.py <mysql|dremio> <your_password>`
+```
+set_password_in_config.py <mysql|dremio> <your_password>
+```
 
 Run with 
 ```
