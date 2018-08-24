@@ -151,16 +151,16 @@ def prepare_vds_request(views,config_dict,dremio_auth_headers):
         statement = replace_AnonymizeUDF(words,statement)
       if ( words.upper() in reserved_words ):
         statement = string.replace(statement,words,"\"" + words + "\"")
-      vds_request_json = create_vds_request(view_name,config_dict,statement)
-        # Execute the create view request on Dremio
-        vdsname,status,output = execute_vds_create(config_dict,vds_request_json,dremio_auth_headers)
-      if (status == "Success"):
-        success_requests[vdsname] = output
-      else:
-        failed_requests[vdsname] = output
-      status_type[status] = status_type.get(status,0) + 1
-      if (status != "Success"):
-        query_error[output['errorMessage']] = query_error.get(output['errorMessage'],0) + 1
+    vds_request_json = create_vds_request(view_name,config_dict,statement)
+    # Execute the create view request on Dremio
+    vdsname,status,output = execute_vds_create(config_dict,vds_request_json,dremio_auth_headers)
+    if (status == "Success"):
+      success_requests[vdsname] = output
+    else:
+      failed_requests[vdsname] = output
+    status_type[status] = status_type.get(status,0) + 1
+    if (status != "Success"):
+      query_error[output['errorMessage']] = query_error.get(output['errorMessage'],0) + 1
   
   # Print summary of success and failure
   for types in sorted(status_type.iterkeys(),reverse=True):
