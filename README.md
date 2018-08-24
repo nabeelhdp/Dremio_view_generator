@@ -12,4 +12,4 @@ Run with
 ```
 python create_dremio_views.py
 ```
-Output and ID of each vds created is stored in `vds_create_status.json` file. Any errors during creation also stored in same file.
+Output and ID of each vds created is stored in `vds_create_status_success.json` and `vds_create_status_failure.json` files. Any errors during creation also stored in same file.
