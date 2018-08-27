@@ -2,6 +2,7 @@
 
 import base64
 import sys
+import getpass
 import string
 import ConfigParser
 from ConfigParser import SafeConfigParser
@@ -40,20 +41,14 @@ def main():
   configfile = os.path.join(os.path.dirname(__file__),"dremio_config.ini")
   # If config file explicitly passed, use it. Else fall back to dremio_config.ini as default filename
   if(sys.argv[1].lower() == 'mysql'):
-    if (len(sys.argv[2]) > 1):
-      password = encode("NOTAVERYSAFEKEY",sys.argv[2])
-      set_config_params(configfile,"metastore_config",password)
-    else:
-      print "No password provided"
-      exit(1)
+    password = encode("NOTAVERYSAFEKEY",getpass.getpass())
+    set_config_params(configfile,"metastore_config",password)
   if(sys.argv[1].lower() == 'dremio'):
-    if (len(sys.argv[2]) > 1):
-      password = encode("NOTAVERYSAFEKEY",sys.argv[2])
-      set_config_params(configfile,"dremio_config",password)
-    else:
-      print "No password provided"
-      exit(1)
-
+    password = encode("NOTAVERYSAFEKEY",getpass.getpass())
+    set_config_params(configfile,"dremio_config",password)
+  if(sys.argv[1].lower() != 'mysql' and sys.argv[1].lower() != 'dremio'):
+     print 'Syntax error. Run script with either dremio or mysql as argument'
+     sys.exit(1)
 
 if __name__ == "__main__":
   main()
