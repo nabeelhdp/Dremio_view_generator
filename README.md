@@ -1,4 +1,4 @@
-# HiveView2DremioVDS
+# Dremio VDS generator
 Retrieve views from Hive database and push to Dremio as Virtual Datasets
 
 Update `dremio_config.ini`
