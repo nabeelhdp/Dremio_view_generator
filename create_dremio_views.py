@@ -1,3 +1,4 @@
+
 #!/usr/bin/python
 
 import subprocess
@@ -106,17 +107,21 @@ def retrieve_views(config_dict):
     print(e)
     return []
 
-# Function to replace UDF 
-def replace_AnonymizeUDF(words,statement):
- temp_str = words.split('.',1)
- temp_db_name = temp_str[0]
- temp_str2 = re.search(r"\(([A-Za-z0-9_.]+)\)",words)
- temp_view_name = ""
- if temp_str2.group(0).startswith('(') and temp_str2.group(0).endswith(')'):
-   temp_view_name = temp_str2.group(0)[1:-1]
- temp_replace_str = "REGEXP_REPLACE(%s,'[a-zA-Z0-9]','X')" % temp_view_name
- statement = string.replace(statement,words,temp_replace_str)
- return statement
+def check_word(words,reserved_words):
+  replace_pattern = ""
+  curr_word = words.split('.')
+  for i in range(words.count('.') + 1):
+    if ( curr_word[i].upper() in reserved_words ) or (curr_word[i][0].isdigit()) :
+      if (words.count('.') == 0 ):
+        replace_pattern += re.sub(r'\b%s\b' % curr_word[i],r'"%s"' %  curr_word[i], curr_word[i]) + " "
+      else:
+        replace_pattern += re.sub(r'\b%s\b' % curr_word[i],r'"%s"' %  curr_word[i], curr_word[i]) + "."
+    else:
+      if (words.count('.') == 0 ):
+        replace_pattern += curr_word[i] + " "
+      else:
+        replace_pattern += curr_word[i] + "."
+  return replace_pattern[:-1]
 
  # Prepare json object for VDS request
 def prepare_vds_request(views,config_dict,dremio_auth_headers):
@@ -124,52 +129,53 @@ def prepare_vds_request(views,config_dict,dremio_auth_headers):
   failed_requests = {}
   status_type = {}
   query_error = {}
-  reserved_words = config_dict["reserved_keywords"].split()
+  reserved_words = config_dict["reserved_keywords"].replace("\"","").split()
+  print reserved_words
   drop_and_create_space(config_dict,dremio_auth_headers)
-  num = 0
   for view in views:
     view_name = str(view).split(",",1)[0][3:-1]
-    view_stmt = str(view).strip().split(",",1)[1][3:-2].replace("\\n","").replace("\\", "").replace(","," , ")
-    statement = view_stmt.strip()
-    stmt_tokens = statement.split()
-    # Name of UDF function. TODO: Support multiple UDFs
-    UDF = "AnonymizeUDF"
-    for words in stmt_tokens:
-      # For parts of HQL not involving UDFs
-      if (words.find(".") != -1 and words.find(UDF) == -1):
-        temp_str = string.replace(words,".",".\"")
-        if temp_str.endswith(")"):
-          # Generic quote addition sometimes puts ending bracket for joins etc inside column name quotes. 
-          # Hence separate cases where ending character is bracket
-          temp_str2 = temp_str[:-1] + "\""
-          statement = re.sub(r'%s\b' % words[:-1] ,temp_str2,statement)
-        else:
-          temp_str2 = temp_str + "\""
-          statement = re.sub(r'%s\b' % words ,temp_str2,statement)
-      if ( words.find(UDF) != -1 ):
-        # Reimplement UDF logic. This example uses a simple masking of confidential data
-        statement = replace_AnonymizeUDF(words,statement)
-      if ( words.upper() in reserved_words ):
-        statement = string.replace(statement,words,"\"" + words + "\"")
-    vds_request_json = create_vds_request(view_name,config_dict,statement)
+    statement = str(view).strip().split(",",1)[1][3:-2].replace("\\n"," ").replace("\\", "").replace(","," , ").replace(")"," ) ").replace("("," ( ")
+    # record original statement for later debugging
+    temp_statement = statement
+    dremio_statement = ""
+    words_list = iter(statement.split())
+    for words in words_list:
+      if ( words.find("DataMask") != -1 ):
+        # Assuming last word is DataMask. Checking rest for  reserved keywords
+        for i in range(0,words.count('.')-1):
+          dremio_statement += check_word(words.split('.')[i],reserved_words) + "."
+        # next should be (
+        words = words_list.next()
+        # next should be arguments
+        words = words_list.next()
+        dremio_statement +=  "REGEXP_REPLACE(%s,'[a-zA-Z0-9]','X') " % check_word(words,reserved_words)
+        word = words_list.next()
+      else:
+        dremio_statement += check_word(words,reserved_words) + " "
+    vds_request_json = create_vds_request(view_name,config_dict,dremio_statement)
     # Execute the create view request on Dremio
     vdsname,status,output = execute_vds_create(config_dict,vds_request_json,dremio_auth_headers)
     if (status == "Success"):
       success_requests[vdsname] = output
     else:
       failed_requests[vdsname] = output
+      #print(" Request: " + vds_request_json)
+      #print("View: " + str(view))
+      #print("\n Original statement: " + temp_statement)
+      print("\n Failed Query : " + dremio_statement)
+      #break
     status_type[status] = status_type.get(status,0) + 1
     if (status != "Success"):
       query_error[output['errorMessage']] = query_error.get(output['errorMessage'],0) + 1
-  
+
   # Print summary of success and failure
   for types in sorted(status_type.iterkeys(),reverse=True):
     print types + " : " + str(status_type[types])
-    
+
   # Print summarized error types for failures
   for items in sorted(query_error.iterkeys()):
     print "      " + str(query_error[items]) + " " + str(items)
-    
+
   return  success_requests,failed_requests
 
 def create_vds_request(view_name,config_dict,statement):
@@ -276,7 +282,6 @@ def main():
     vds_create_success = {}
     vds_create_failure = {}
     vds_create_success,vds_create_failure = prepare_vds_request(hive_views,config_dict,dremio_auth_headers)
-    
     with open('vds_create_success.json','w') as sfp:
       json.dump(vds_create_success,sfp, indent=4, sort_keys=True)
     with open('vds_create_failure.json','w') as ffp:
