@@ -107,6 +107,11 @@ def retrieve_views(config_dict):
     print(e)
     return []
 
+# Dremio freaks out in the following conditions :
+#  1) A column name overlaps with a reserved keywords
+#  2) A column name or table name starts with a digit
+#  3) An unknown UDF is invoked.
+# For all three cases, we check the word and put it in quotes to avoid a query failure in Dremio
 def check_word(words,reserved_words):
   replace_pattern = ""
   curr_word = words.split('.')
@@ -135,8 +140,6 @@ def prepare_vds_request(views,config_dict,dremio_auth_headers):
   for view in views:
     view_name = str(view).split(",",1)[0][3:-1]
     statement = str(view).strip().split(",",1)[1][3:-2].replace("\\n"," ").replace("\\", "").replace(","," , ").replace(")"," ) ").replace("("," ( ")
-    # record original statement for later debugging
-    temp_statement = statement
     dremio_statement = ""
     words_list = iter(statement.split())
     for words in words_list:
@@ -161,9 +164,7 @@ def prepare_vds_request(views,config_dict,dremio_auth_headers):
       failed_requests[vdsname] = output
       #print(" Request: " + vds_request_json)
       #print("View: " + str(view))
-      #print("\n Original statement: " + temp_statement)
       print("\n Failed Query : " + dremio_statement)
-      #break
     status_type[status] = status_type.get(status,0) + 1
     if (status != "Success"):
       query_error[output['errorMessage']] = query_error.get(output['errorMessage'],0) + 1
