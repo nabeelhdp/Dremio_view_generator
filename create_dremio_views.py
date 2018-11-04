@@ -116,8 +116,12 @@ def retrieve_dremio_token(config_dict):
 
 
 def retrieve_views(config_dict):
-    sql_stmt = "select tbl_name,view_original_text from TBLS where db_id = (select db_id from DBS where name = '%s') and tbl_type = 'VIRTUAL_VIEW'" % config_dict[
-        "hivedb_name"]
+    sql_stmt = "select tbl_name,view_original_text " +\
+               "from TBLS " +\
+               "where db_id = (select db_id from DBS where name = '%s') " \
+                              % config_dict["hivedb_name"] +\
+               "and tbl_type = 'VIRTUAL_VIEW'"
+                   
     # Connect to MySQL database
     try:
         conn = mysql.connector.connect(
