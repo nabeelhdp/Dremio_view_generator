@@ -180,13 +180,12 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
     drop_and_create_space(config_dict, dremio_auth_headers)
     for view in views:
         view_name = str(view).split(",", 1)[0][3:-1]
-        statement = str(view).strip().split(",",
-                                            1)[1][3:-2].replace("\\n",
-                                                                " ").replace("\\",
-                                                                             "").replace(",",
-                                                                                         " , ").replace(")",
-                                                                                                        " ) ").replace("(",
-                                                                                                                       " ( ")
+        statement = str(view).strip().split(",",1)[1][3:-2].\
+                                            replace("\\n"," ").\
+...                                         replace("\\","").\
+...                                         replace(","," , ").\
+...                                         replace(")"," ) ").\
+...                                         replace("("," ( ")
         dremio_statement = ""
         words_list = iter(statement.split())
         for words in words_list:
