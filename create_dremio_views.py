@@ -143,13 +143,13 @@ def retrieve_views(config_dict):
 
 
 def check_word(words, reserved_words):
-""" Dremio freaks out in the following conditions :
-  1) A column name overlaps with a reserved keywords
-  2) A column name or table name starts with a digit
-  3) An unknown UDF is invoked.
- For all three cases, we check the word and put it
- in quotes to avoid a query failure in Dremio.
-"""
+    """ Dremio freaks out in the following conditions :
+    1) A column name overlaps with a reserved keywords
+    2) A column name or table name starts with a digit
+    3) An unknown UDF is invoked.
+    For all three cases, we check the word and put it
+    in quotes to avoid a query failure in Dremio.
+    """
     replace_pattern = ""
     curr_word = words.split('.')
     for i in range(words.count('.') + 1):
@@ -185,10 +185,10 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
         view_name = str(view).split(",", 1)[0][3:-1]
         statement = str(view).strip().split(",",1)[1][3:-2].\
                                             replace("\\n"," ").\
-...                                         replace("\\","").\
-...                                         replace(","," , ").\
-...                                         replace(")"," ) ").\
-...                                         replace("("," ( ")
+                                            replace("\\","").\
+                                            replace(","," , ").\
+                                            replace(")"," ) ").\
+                                            replace("("," ( ")
         dremio_statement = ""
         words_list = iter(statement.split())
         for words in words_list:
