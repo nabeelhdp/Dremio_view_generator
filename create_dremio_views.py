@@ -60,10 +60,10 @@ def get_config_params(config_file):
     config_dict["dremio_space"] = parser.get('metastore_config', 'hivedb')
 
     config_dict["dremio_pass"] = decode(
-        "NOTAVERYSAFEKEY", parser.get(
+        "OIMERDOFNAFGIBASIIRAH", parser.get(
             'dremio_config', 'pass'))
     config_dict["metastore_pass"] = decode(
-        "NOTAVERYSAFEKEY", parser.get(
+        "OIMERDOFNAFGIBASIIRAH", parser.get(
             'metastore_config', 'pass'))
 
     return config_dict
@@ -121,7 +121,7 @@ def retrieve_views(config_dict):
                "where db_id = (select db_id from DBS where name = '%s') " \
                               % config_dict["hivedb_name"] +\
                "and tbl_type = 'VIRTUAL_VIEW'"
-                   
+
     # Connect to MySQL database
     try:
         conn = mysql.connector.connect(
@@ -142,32 +142,46 @@ def retrieve_views(config_dict):
         return []
 
 
-def check_word(words, reserved_words):
+def fix_keywords(words, reserved_words):
     """ Dremio freaks out in the following conditions :
     1) A column name overlaps with a reserved keywords
     2) A column name or table name starts with a digit
     3) An unknown UDF is invoked.
-    For all three cases, we check the word and put it
-    in quotes to avoid a query failure in Dremio.
+    4) String datatype is encountered
+    For cases 1 and 2, we check the word and put it
+    in quotes in this function to avoid a query failure in Dremio.
+    Case 3 is handled elsewhere
+    For case 4, Dremio does not have String type, so we replace
+    it with varchar
     """
-    replace_pattern = ""
+
+    # Avoid getting into loop for standalone words
+    if (words.count('.') == 0):
+        if words.lower() == "string":
+            return "varchar"
+        if words.isdigit():
+            return words
+        if words.upper() in reserved_words:
+            return re.sub(r'\b%s\b' % words, r'"%s"' % words, words)
+        return words
+
+    # Loop for words separated by a dot
     curr_word = words.split('.')
+    replace_pattern = ""
+
     for i in range(words.count('.') + 1):
-        if (curr_word[i].upper() in reserved_words) or (
+        if curr_word[i].isdigit():
+            replace_pattern += curr_word[i] + "."
+            continue
+        # For column names beginning with numbers followed by any other
+        # characters, wrap column name in quotes
+        if curr_word[i].upper() in reserved_words or (
                 curr_word[i][0].isdigit()):
-            if (words.count('.') == 0):
-                replace_pattern += re.sub(r'\b%s\b' %
-                                          curr_word[i], r'"%s"' %
-                                          curr_word[i], curr_word[i]) + " "
-            else:
-                replace_pattern += re.sub(r'\b%s\b' %
-                                          curr_word[i], r'"%s"' %
-                                          curr_word[i], curr_word[i]) + "."
+            replace_pattern += re.sub(r'\b%s\b' %
+                                      curr_word[i], r'"%s"' %
+                                      curr_word[i], curr_word[i]) + "."
         else:
-            if (words.count('.') == 0):
-                replace_pattern += curr_word[i] + " "
-            else:
-                replace_pattern += curr_word[i] + "."
+            replace_pattern += curr_word[i] + "."
     return replace_pattern[:-1]
 
    # Prepare json object for VDS request
@@ -175,16 +189,17 @@ def check_word(words, reserved_words):
 
 def prepare_vds_request(views, config_dict, dremio_auth_headers):
     success_requests = {}
-    failed_requests = {}
+    fail_requests = {}
     status_type = {}
+    dremio_response_time = {}
     query_error = {}
     reserved_words = config_dict["reserved_keywords"].replace("\"", "").split()
-    print reserved_words
     drop_and_create_space(config_dict, dremio_auth_headers)
     for view in views:
         view_name = str(view).split(",", 1)[0][3:-1]
         statement = str(view).strip().split(",",1)[1][3:-2].\
                                             replace("\\n"," ").\
+                                            replace("\\t"," ").\
                                             replace("\\","").\
                                             replace(","," , ").\
                                             replace(")"," ) ").\
@@ -193,37 +208,59 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
         words_list = iter(statement.split())
         for words in words_list:
             if (words.find("DataMask") != -1):
-                # Assuming last word is DataMask. Checking rest for  reserved
-                # keywords
+                # Assuming last word is DataMask
+                # Checking rest for reserved keywords
                 for i in range(0, words.count('.') - 1):
-                    dremio_statement += check_word(
+                    dremio_statement += fix_keywords(
                         words.split('.')[i], reserved_words) + "."
-                # next should be (
+                # DataMask should be followed by pattern ( <args> )
+                # skip the opening and closing parantheses using next()
                 words = words_list.next()
-                # next should be arguments
                 words = words_list.next()
-                dremio_statement += "REGEXP_REPLACE(%s,'[a-zA-Z0-9]','X') " % check_word(
-                    words, reserved_words)
+                dremio_statement += "REGEXP_REPLACE(%s,'[a-zA-Z0-9]','X') " % (
+                    fix_keywords(words, reserved_words))
                 word = words_list.next()
             else:
-                dremio_statement += check_word(words, reserved_words) + " "
+                dremio_statement += fix_keywords(words, reserved_words) + " "
         vds_request_json = create_vds_request(
             view_name, config_dict, dremio_statement)
-        # Execute the create view request on Dremio
+
+        # Execute the create view request on Dremio and capture response time
+        s_time = time.time()
         vdsname, status, output = execute_vds_create(
             config_dict, vds_request_json, dremio_auth_headers)
+        e_time = time.time()
+        dremio_response_time['Total'] = dremio_response_time.get(
+                                                'Total',0) + (e_time - s_time)
+        dremio_response_time['Count'] = dremio_response_time.get('Count',0) + 1
+
         if (status == "Success"):
             success_requests[vdsname] = output
         else:
-            failed_requests[vdsname] = output
+            fail_requests[vdsname] = output
             #print(" Request: " + vds_request_json)
-            #print("View: " + str(view))
-            print("\n Failed Query : " + dremio_statement)
+            #print("\n View: " + str(view))
+            #print("\n Failed Query : " + dremio_statement)
         status_type[status] = status_type.get(status, 0) + 1
-        if (status != "Success"):
-            query_error[output['errorMessage']] = query_error.get(
-                output['errorMessage'], 0) + 1
 
+        if (status != "Success"):
+            try:
+                moreinfo =  output['moreInfo']
+                moreinfo =  re.sub(r"\$\d+","",moreinfo)
+                query_error[moreinfo] = query_error.get(moreinfo, 0) + 1
+            except KeyError as e:
+                query_error[output['errorMessage']] = query_error.get(
+                    output['errorMessage'], 0) + 1
+
+    # Print Dremio response time summary
+    print "\nDremio Response time summary: \n"
+    print "Total queries sent to Dremio server: %d" % int(
+               dremio_response_time['Count'])
+    print "Aggregate response time from Dremio Server : %.6f" % float(
+               dremio_response_time['Total'])
+    print "Average response time from Dremio Server : %.6f" % (
+               float(dremio_response_time['Total']) / int(
+               dremio_response_time['Count']))
     # Print summary of success and failure
     for types in sorted(status_type.iterkeys(), reverse=True):
         print types + " : " + str(status_type[types])
@@ -231,11 +268,12 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
     # Print summarized error types for failures
     for items in sorted(query_error.iterkeys()):
         print "      " + str(query_error[items]) + " " + str(items)
-
-    return success_requests, failed_requests
+    return success_requests, fail_requests
 
 
 def create_vds_request(view_name, config_dict, statement):
+    """Returns a JSON object in the format required by Dremio to create a virtual dataset
+    """
     vds_dict = {}
     vds_dict["entityType"] = "dataset"
     vds_dict["type"] = "VIRTUAL_DATASET"
@@ -247,6 +285,11 @@ def create_vds_request(view_name, config_dict, statement):
 
 
 def execute_vds_create(config_dict, vds_request, dremio_auth_headers):
+    """Connects to Dremio, passes the JSON object for virtual dataset creation
+       Returns View name as String
+               Status as a String ( "Success"/"Failure <FailureType>" )
+               Response output as JSON
+    """
     req = urllib2.Request(
         config_dict['dremio_catalog_url'],
         data=vds_request,
@@ -277,7 +320,6 @@ def execute_vds_create(config_dict, vds_request, dremio_auth_headers):
 
 
 def drop_and_create_space(config_dict, dremio_auth_headers):
-
     space_id = get_space_id(config_dict, dremio_auth_headers)
     if (space_id):
         drop_status = drop_space(space_id, config_dict, dremio_auth_headers)
