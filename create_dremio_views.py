@@ -134,10 +134,8 @@ def retrieve_views(config_dict):
             cursor = conn.cursor()
             cursor.execute(sql_stmt)
             rows = cursor.fetchall()
-            print('%s INFO: Hive Database : %s' % (
-                datetime.datetime.now(),config_dict['hivedb_name']))
-            print('%s INFO: Total view count: %d' % (
-                datetime.datetime.now(),cursor.rowcount))
+            print('%s INFO: Hive Database : %s' % (datetime.datetime.now(),config_dict['hivedb_name']))
+            print('%s INFO: Total view count: %d' % (datetime.datetime.now(),cursor.rowcount))
             cursor.close()
             conn.close()
             return rows
@@ -147,7 +145,7 @@ def retrieve_views(config_dict):
 
 
 def fix_keywords(words, reserved_words):
-    """ Dremio freaks out in the following conditions :
+    """ Dremio errors out in the following conditions :
     1) A column name overlaps with a reserved keywords
     2) A column name or table name starts with a digit
     3) An unknown UDF is invoked.
@@ -197,8 +195,31 @@ def fix_keywords(words, reserved_words):
 
    # Prepare json object for VDS request
 
+def strip_statement(sql_statement):
+    """ The SQL statement read from the Hive Metastore is subjected to
+    the following alterations :
+    1) The following special characters are replaced with a whitespace :
+    \n  \t  \\
+    2) The  following characters have whitespaces inserted around them to
+    separate the words around them:
+    ,  =  (  )
+    """
+    return str(sql_statement).strip().split(",",1)[1][3:-2].\
+                                            replace("\\n"," ").\
+                                            replace("\\t"," ").\
+                                            replace("\\","").\
+                                            replace(","," , ").\
+                                            replace("="," = ").\
+                                            replace(")"," ) ").\
+                                            replace("("," ( ")
+
 
 def prepare_vds_request(views, config_dict, dremio_auth_headers):
+    """ The SQL statement read from the Hive Metastore is subjected to
+    the following alterations :
+    1) The UDF in Hive called DataMask is replaced with a local implementation
+    2) Refer help for fix_keywords() for other changes
+    """
     success_requests = {}
     fail_requests = {}
     status_type = {}
@@ -208,14 +229,7 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
     drop_and_create_space(config_dict, dremio_auth_headers)
     for view in views:
         view_name = str(view).split(",", 1)[0][3:-1]
-        statement = str(view).strip().split(",",1)[1][3:-2].\
-                                            replace("\\n"," ").\
-                                            replace("\\t"," ").\
-                                            replace("\\","").\
-                                            replace(","," , ").\
-                                            replace("="," = ").\
-                                            replace(")"," ) ").\
-                                            replace("("," ( ")
+        statement = strip_statement(view)
         dremio_statement = ""
         words_list = iter(statement.split())
         for words in words_list:
@@ -264,10 +278,16 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
                 moreinfo =  output['moreInfo']
                 moreinfo =  re.sub(r"\$\d+","",moreinfo)
                 query_error[moreinfo] = query_error.get(moreinfo, 0) + 1
+                fail_requests[vdsname]['failedQuery'] = dremio_statement
             except KeyError as e:
                 query_error[output['errorMessage']] = query_error.get(
                     output['errorMessage'], 0) + 1
 
+    print_summary(dremio_response_time,status_type,query_error)
+
+    return success_requests, fail_requests
+
+def print_summary(dremio_response_time,status_type,query_error):
     # Print Dremio response time summary
     print "\n=== Dremio Response time summary ==="
     print "Total queries sent to Dremio server: %d" % int(
@@ -285,7 +305,6 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
     # Print summarized error types for failures
     for items in sorted(query_error.iterkeys()):
         print str(query_error[items]) + " " + str(items)
-    return success_requests, fail_requests
 
 
 def create_vds_request(view_name, config_dict, statement):
@@ -351,8 +370,7 @@ def drop_space(space_id, config_dict, dremio_auth_headers):
     del_req.get_method = lambda: 'DELETE'
     try:
         response = urllib2.urlopen(del_req, timeout=30)
-        print "%s INFO: Deleted %s : ID: %s" % (
-            datetime.datetime.now(),config_dict['dremio_space'], space_id)
+        print "%s INFO: Deleted %s : ID: %s" % (datetime.datetime.now(),config_dict['dremio_space'], space_id)
         return True
     except (urllib2.URLError, urllib2.HTTPError) as e:
         print e.read()
