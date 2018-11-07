@@ -61,10 +61,10 @@ def get_config_params(config_file):
     config_dict["dremio_space"] = parser.get('metastore_config', 'hivedb')
 
     config_dict["dremio_pass"] = decode(
-        "OIMERDOFNAFGIBASIIRAH", parser.get(
+        "NOTAVERYSAFEKEY", parser.get(
             'dremio_config', 'pass'))
     config_dict["metastore_pass"] = decode(
-        "OIMERDOFNAFGIBASIIRAH", parser.get(
+        "NOTAVERYSAFEKEY", parser.get(
             'metastore_config', 'pass'))
 
     return config_dict
