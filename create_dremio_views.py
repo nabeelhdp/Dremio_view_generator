@@ -9,6 +9,7 @@ import re
 import os
 import json
 import time
+import datetime
 import string
 import urllib2
 import httplib
@@ -133,7 +134,10 @@ def retrieve_views(config_dict):
             cursor = conn.cursor()
             cursor.execute(sql_stmt)
             rows = cursor.fetchall()
-            print('Total Row(s):', cursor.rowcount)
+            print('%s INFO: Hive Database : %s' % (
+                datetime.datetime.now(),config_dict['hivedb_name']))
+            print('%s INFO: Total view count: %d' % (
+                datetime.datetime.now(),cursor.rowcount))
             cursor.close()
             conn.close()
             return rows
@@ -148,11 +152,13 @@ def fix_keywords(words, reserved_words):
     2) A column name or table name starts with a digit
     3) An unknown UDF is invoked.
     4) String datatype is encountered
+    5) Reserved keyword "AT" is in query as an alias etc
     For cases 1 and 2, we check the word and put it
     in quotes in this function to avoid a query failure in Dremio.
     Case 3 is handled elsewhere
     For case 4, Dremio does not have String type, so we replace
     it with varchar
+    For case 5, we append _1 to at as column alias
     """
 
     # Avoid getting into loop for standalone words
@@ -161,6 +167,8 @@ def fix_keywords(words, reserved_words):
             return "varchar"
         if words.isdigit():
             return words
+        if words.lower() == "at":
+            return "at_1"
         if words.upper() in reserved_words:
             return re.sub(r'\b%s\b' % words, r'"%s"' % words, words)
         return words
@@ -172,6 +180,9 @@ def fix_keywords(words, reserved_words):
     for i in range(words.count('.') + 1):
         if curr_word[i].isdigit():
             replace_pattern += curr_word[i] + "."
+            continue
+        if curr_word[i].lower() == "at":
+            replace_pattern += "at_1."
             continue
         # For column names beginning with numbers followed by any other
         # characters, wrap column name in quotes
@@ -202,6 +213,7 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
                                             replace("\\t"," ").\
                                             replace("\\","").\
                                             replace(","," , ").\
+                                            replace("="," = ").\
                                             replace(")"," ) ").\
                                             replace("("," ( ")
         dremio_statement = ""
@@ -234,7 +246,11 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
                                                 'Total',0) + (e_time - s_time)
         dremio_response_time['Count'] = dremio_response_time.get('Count',0) + 1
 
-        if (status == "Success"):
+        if dremio_response_time['Count'] % 100 == 0:
+           print("%s INFO: %d VDS create requests sent to Dremio" %
+                 (datetime.datetime.now(),dremio_response_time['Count']))
+
+        if status == "Success":
             success_requests[vdsname] = output
         else:
             fail_requests[vdsname] = output
@@ -253,7 +269,7 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
                     output['errorMessage'], 0) + 1
 
     # Print Dremio response time summary
-    print "\nDremio Response time summary: \n"
+    print "\n=== Dremio Response time summary ==="
     print "Total queries sent to Dremio server: %d" % int(
                dremio_response_time['Count'])
     print "Aggregate response time from Dremio Server : %.6f" % float(
@@ -262,12 +278,13 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
                float(dremio_response_time['Total']) / int(
                dremio_response_time['Count']))
     # Print summary of success and failure
+    print "\n=== Dremio Result summary ==="
     for types in sorted(status_type.iterkeys(), reverse=True):
         print types + " : " + str(status_type[types])
 
     # Print summarized error types for failures
     for items in sorted(query_error.iterkeys()):
-        print "      " + str(query_error[items]) + " " + str(items)
+        print str(query_error[items]) + " " + str(items)
     return success_requests, fail_requests
 
 
@@ -334,7 +351,8 @@ def drop_space(space_id, config_dict, dremio_auth_headers):
     del_req.get_method = lambda: 'DELETE'
     try:
         response = urllib2.urlopen(del_req, timeout=30)
-        print "Space %s : ID: %s Deleted" % (config_dict['dremio_space'], space_id)
+        print "%s INFO: Deleted %s : ID: %s" % (
+            datetime.datetime.now(),config_dict['dremio_space'], space_id)
         return True
     except (urllib2.URLError, urllib2.HTTPError) as e:
         print e.read()
@@ -356,7 +374,7 @@ def create_space(config_dict, dremio_auth_headers):
         headers=dremio_auth_headers)
     try:
         response = urllib2.urlopen(create_req, timeout=30)
-        print "Space %s created" % space_dict["name"]
+        print "%s INFO: Created %s " % (datetime.datetime.now(),space_dict["name"])
         return True
     except (urllib2.URLError, urllib2.HTTPError) as e:
         print e.read()
@@ -411,7 +429,7 @@ def main():
         with open('vds_create_failure.json', 'w') as ffp:
             json.dump(vds_create_failure, ffp, indent=4, sort_keys=True)
     else:
-        print "No views retrieved from %s" % config_dict['hivedb_name']
+        print "ERROR : No views retrieved from %s" % config_dict['hivedb_name']
 
 
 if __name__ == "__main__":
