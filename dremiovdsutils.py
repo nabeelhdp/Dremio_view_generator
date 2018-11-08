@@ -1,5 +1,3 @@
-# !/usr/bin/python
-
 import socket
 import re
 import json
@@ -84,6 +82,10 @@ def strip_statement(sql_statement):
         replace("(", " ( ")
 
 
+def add_casting(dremio_statement):
+    """Add casting to both sides of join conditions as varchar """
+    return re.sub(r'(\w+\.\w+) = (\w+\.\w+)',r'cast(\1 as varchar) = cast(\2 as varchar)', dremio_statement )
+
 def prepare_vds_request(views, config_dict, dremio_auth_headers):
     """ The SQL statement read from the Hive Metastore is subjected to
     the following alterations :
@@ -106,7 +108,11 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
     dremio_response_time = {}
     query_error = {}
     reserved_words = config_dict["reserved_keywords"].replace("\"", "").split()
-    recreate_space(config_dict['dremio_space'], config_dict['dremio_catalog_url'], dremio_auth_headers)
+    recreate_space(config_dict['dremio_space'],
+        config_dict['dremio_catalog_url'], dremio_auth_headers)
+
+    print("%s INFO: Starting VDS request creation in Dremio" %
+             (datetime.datetime.now()))
     for view in views:
         view_name = str(view).split(",", 1)[0][3:-1]
         statement = strip_statement(view)
@@ -135,6 +141,23 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
         s_time = time.time()
         vdsname, status, output = execute_vds_create(
             config_dict, vds_request_json, dremio_auth_headers)
+        if status != "Success":
+            try:
+                if "Cannot find common type for join keys" in output['moreInfo']:
+                    vds_request_json = create_vds_request(
+                        view_name,
+                        config_dict,
+                        add_casting(dremio_statement)
+                    )
+                    print("%s INFO: Retrying query with casting " %
+                        datetime.datetime.now(),"added to join condition")
+                    # Retry query with casting added to join conditions
+                    vdsname, status, output = execute_vds_create(
+                        config_dict,
+                        vds_request_json,
+                        dremio_auth_headers)
+            except KeyError:
+                pass
         e_time = time.time()
         dremio_response_time['Total'] = dremio_response_time.get(
             'Total', 0) + (e_time - s_time)
@@ -153,7 +176,7 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
             # print("\n Failed Query : " + dremio_statement)
         status_type[status] = status_type.get(status, 0) + 1
 
-        if (status != "Success"):
+        if status != "Success":
             try:
                 moreinfo = output['moreInfo']
                 moreinfo = re.sub(r"\$\d+", "", moreinfo)
