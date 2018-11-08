@@ -3,7 +3,6 @@
 import base64
 import sys
 import getpass
-import string
 import ConfigParser
 from ConfigParser import SafeConfigParser
 import os
@@ -39,7 +38,6 @@ def set_config_params(configfile, section, password):
 
 def main():
 
-    password = ""
     configfile = os.path.join(os.path.dirname(__file__), "dremio_config.ini")
     # If config file explicitly passed, use it. Else fall back to
     # dremio_config.ini as default filename
