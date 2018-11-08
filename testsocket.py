@@ -2,6 +2,7 @@
 import sys
 import socket
 
+
 def test_socket(socket_host, socket_port, service_name):
     """Test socket connectivity to requested service port
 
