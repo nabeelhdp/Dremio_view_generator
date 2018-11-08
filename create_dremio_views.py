@@ -160,7 +160,7 @@ def prepare_vds_request(views, config_dict, dremio_auth_headers):
     dremio_response_time = {}
     query_error = {}
     reserved_words = config_dict["reserved_keywords"].replace("\"", "").split()
-    recreate_space(config_dict, dremio_auth_headers)
+    recreate_space(config_dict['dremio_space'], config_dict['dremio_catalog_url'], dremio_auth_headers)
     for view in views:
         view_name = str(view).split(",", 1)[0][3:-1]
         statement = strip_statement(view)
