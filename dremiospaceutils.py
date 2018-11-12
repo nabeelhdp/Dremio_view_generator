@@ -118,6 +118,7 @@ def get_space_id(space_name, dremio_catalog_url, dremio_auth_headers):
         for item in data:
             if item['path'][0] == space_name:
                 return item['id']
+        return 'False'
     except (URLError, HTTPError) as e:
         print e.read()
         return 'False'
